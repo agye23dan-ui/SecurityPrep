@@ -1,0 +1,36 @@
+{
+  "source": "CompTIA PenTest+ PT0-003 Exam Objectives, document version 5.0 (copyright 2023)",
+  "exam": "pentest",
+  "pendingDomains": [
+    "d4",
+    "d5"
+  ],
+  "objectives": {
+    "1.1": "Summarize pre-engagement activities",
+    "1.2": "Explain collaboration and communication activities",
+    "1.3": "Compare and contrast testing frameworks and methodologies",
+    "1.4": "Explain the components of a penetration test report",
+    "1.5": "Given a scenario, analyze the findings and recommend the appropriate remediation within a report",
+    "2.1": "Given a scenario, apply information gathering techniques",
+    "2.2": "Given a scenario, apply enumeration techniques",
+    "2.3": "Given a scenario, modify scripts for reconnaissance and enumeration",
+    "2.4": "Given a scenario, use the appropriate tools for reconnaissance and enumeration",
+    "3.1": "Given a scenario, conduct vulnerability discovery using various techniques",
+    "3.2": "Given a scenario, analyze output from reconnaissance, scanning, and enumeration phases",
+    "3.3": "Explain physical security concepts",
+    "4.1": "Given a scenario, analyze output to prioritize and prepare attacks",
+    "4.2": "Given a scenario, perform network attacks using the appropriate tools",
+    "4.3": "Given a scenario, perform authentication attacks using the appropriate tools",
+    "4.4": "Given a scenario, perform host-based attacks using the appropriate tools",
+    "4.5": "Given a scenario, perform web application attacks using the appropriate tools",
+    "4.6": "Given a scenario, perform cloud-based attacks using the appropriate tools",
+    "4.7": "Given a scenario, perform wireless attacks using the appropriate tools",
+    "4.8": "Given a scenario, perform social engineering attacks using the appropriate tools",
+    "4.9": "Explain common attacks against specialized systems",
+    "4.10": "Given a scenario, use scripting to automate attacks",
+    "5.1": "Given a scenario, perform tasks to establish and maintain persistence",
+    "5.2": "Given a scenario, perform tasks to move laterally throughout the environment",
+    "5.3": "Summarize concepts related to staging and exfiltration",
+    "5.4": "Explain cleanup and restoration activities"
+  }
+}

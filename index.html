@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e1621">
+  <title>CompTIA Security Prep</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    /* Apply the saved theme before first paint to avoid a flash. */
+    try { var t = JSON.parse(localStorage.getItem('secprep.v1') || '{}'); var th = t && t.prefs && t.prefs.theme; if (th === 'light' || th === 'dark') document.documentElement.setAttribute('data-theme', th); } catch (e) {}
+  </script>
+</head>
+<body>
+  <a class="skip" href="#app">Skip to content</a>
+  <div id="live" class="sr" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#/">
+        <img src="icon.svg" alt="" width="34" height="34">
+        <span>Security<b>Prep</b></span>
+      </a>
+      <nav class="nav" id="nav" aria-label="Main">
+        <a href="#/" data-route="home"><i>◧</i><span>Dashboard</span></a>
+        <a href="#/study" data-route="study"><i>▤</i><span>Study</span></a>
+        <a href="#/practice" data-route="practice"><i>✎</i><span>Practice</span></a>
+        <a href="#/labs" data-route="labs"><i>⚗</i><span>Labs</span></a>
+        <a href="#/flash" data-route="flash"><i>❖</i><span>Flashcards</span></a>
+        <a href="#/search" data-route="search"><i>⌕</i><span>Search</span></a>
+        <a href="#/mock" data-route="mock"><i>⏱</i><span>Mock Exam</span></a>
+        <a href="#/readiness" data-route="readiness"><i>◎</i><span>Readiness</span></a>
+        <a href="#/settings" data-route="settings"><i>⚙</i><span>Settings</span></a>
+      </nav>
+      <div class="side-foot" id="sideFoot"></div>
+    </aside>
+    <main class="main" id="app" tabindex="-1"></main>
+  </div>
+  <noscript><p style="padding:2rem;color:#fff">This platform needs JavaScript enabled.</p></noscript>
+
+  <script src="js/catalog.js"></script>
+  <!-- Content modules: one file per exam domain. Add new domain files here and in sw.js. -->
+  <script src="js/content/secplus-d1.js"></script>
+  <script src="js/content/secplus-d2.js"></script>
+  <script src="js/content/secplus-d3.js"></script>
+  <script src="js/content/secplus-d4.js"></script>
+  <script src="js/content/secplus-d5.js"></script>
+  <script src="js/content/cysa-d1.js"></script>
+  <script src="js/content/cysa-d2.js"></script>
+  <script src="js/content/cysa-d3.js"></script>
+  <script src="js/content/cysa-d4.js"></script>
+  <script src="js/content/securityx-d1.js"></script>
+  <script src="js/content/securityx-d2.js"></script>
+  <script src="js/content/securityx-d3.js"></script>
+  <script src="js/content/securityx-d4.js"></script>
+  <script src="js/content/pentest-d1.js"></script>
+  <script src="js/content/pentest-d2.js"></script>
+  <script src="js/content/pentest-d3.js"></script>
+  <script src="js/content/pentest-d4.js"></script>
+  <script src="js/content/pentest-d5.js"></script>
+  <script src="js/content/pbq.js"></script>
+  <script src="js/labs/core.js"></script>
+  <script src="js/labs/content-shell.js"></script>
+  <script src="js/labs/content-net.js"></script>
+  <script src="js/labs/content-config.js"></script>
+  <script src="js/labs/content-misc.js"></script>
+  <script src="js/labs/ui.js"></script>
+  <script src="js/migrations.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>SecurityPrep smoke test</title>
+<!-- Drives the real app in an iframe and prints PASS/FAIL lines into #out. Run with `node tests/smoke.js`. -->
+</head><body>
+<pre id="out"></pre>
+<iframe id="f" style="width:1200px;height:900px;border:0" title="app"></iframe>
+<script>
+const out = document.getElementById('out');
+const log = (ok, msg) => { out.textContent += (ok ? 'PASS ' : 'FAIL ') + msg + '\n'; };
+const check = (cond, msg) => log(!!cond, msg);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const frame = document.getElementById('f');
+let W, D; const errors = [];
+function load(url) {
+  return new Promise((res) => {
+    frame.onload = () => { W = frame.contentWindow; D = frame.contentDocument; W.confirm = () => true; W.alert = () => {};
+      W.addEventListener('error', (e) => errors.push(e.message)); W.addEventListener('unhandledrejection', (e) => errors.push('promise: ' + (e.reason && e.reason.message || e.reason))); res(); };
+    frame.src = url;
+  });
+}
+const q = (s) => D.querySelector(s), qa = (s) => Array.from(D.querySelectorAll(s));
+const go = async (h) => { W.location.hash = h; await sleep(120); };
+const setSel = (el, v) => { el.value = v; el.dispatchEvent(new W.Event('change', { bubbles: true })); };
+const typeIn = (el, v) => { el.value = v; el.dispatchEvent(new W.Event('input', { bubbles: true })); };
+const store = () => JSON.parse(W.localStorage.getItem('secprep.v1') || '{}');
+const idbState = () => new Promise((res) => { const r = indexedDB.open('secprep', 1); r.onerror = () => res(null); r.onupgradeneeded = () => { r.result.createObjectStore('kv'); };
+  r.onsuccess = () => { try { const g = r.result.transaction('kv').objectStore('kv').get('state'); g.onsuccess = () => { r.result.close(); res(g.result ? JSON.parse(g.result) : null); }; g.onerror = () => res(null); } catch (e) { res(null); } }; });
+const idbClear = () => new Promise((res) => { const r = indexedDB.open('secprep', 1); r.onupgradeneeded = () => { r.result.createObjectStore('kv'); }; r.onerror = () => res();
+  r.onsuccess = () => { try { const t = r.result.transaction('kv', 'readwrite'); t.objectStore('kv').clear(); t.oncomplete = () => { r.result.close(); res(); }; t.onerror = () => res(); } catch (e) { res(); } }; });
+
+/* Wait for a condition. Each round also does a real IndexedDB round trip, because headless "virtual time" can run timers ahead of storage. */
+async function settle(cond, rounds) {
+  for (let i = 0; i < (rounds || 40); i++) { if (cond()) return true; await idbState(); await sleep(50); }
+  return !!cond();
+}
+async function runPractice(exam, dom, obj) {
+  await go('#/practice');
+  setSel(q('[data-chg=psExam]'), exam); await sleep(40);
+  setSel(q('[data-chg=psDom]'), dom); await sleep(40);
+  setSel(q('[data-chg=psObj]'), obj); await sleep(40);
+  setSel(q('[data-chg=psCount]'), '0'); await sleep(40);
+  q('[data-act=psStart]').click(); await sleep(120);
+  const seen = { order: 0, sort: 0, opts: 0, exhibit: 0, multi: 0 }; let n = 0;
+  for (let i = 0; i < 120 && W.location.hash === '#/quiz'; i++) {
+    const hasOrder = !!q('.order'); const sels = qa('.match select');
+    if (q('.exhibit')) seen.exhibit++;
+    if (hasOrder) { seen.order++; const mv = q('[data-act=mv][data-d="1"]:not([disabled])'); if (mv) mv.click(); }
+    else if (sels.length) { seen.sort++; sels.forEach((s) => setSel(s, s.options[1].value)); }
+    else { seen.opts++; const opts = qa('.opt'); opts[0].click(); await sleep(10); if (/Select \d+/.test(q('.lead') ? q('.lead').textContent : '')) { qa('.opt')[1].click(); seen.multi++; } }
+    await sleep(10);
+    const chk = q('#checkBtn'); if (!chk || chk.disabled) { log(false, exam + ' ' + obj + ': check button unavailable on question ' + (n + 1)); break; }
+    chk.click(); await sleep(10);
+    if (!q('.explain')) { log(false, exam + ' ' + obj + ': no feedback shown on question ' + (n + 1)); break; }
+    n++;
+    q('[data-act=next]').click(); await sleep(20);
+  }
+  const res = W.location.hash === '#/results' && /Results/.test(q('#app').textContent);
+  check(res && n >= 8, exam + ' ' + obj + ': answered ' + n + ' questions to the results page (' + JSON.stringify(seen) + ')');
+  return seen;
+}
+
+(async function main() {
+  try {
+    /* clean start */
+    await load('../index.html?nopersist=1'); W.localStorage.clear(); await idbClear(); await load('../index.html?nopersist=1'); await sleep(300);
+
+    /* 1. every page renders */
+    for (const h of ['#/', '#/study', '#/study/pentest', '#/study/pentest/d5', '#/study/pentest/d5/5.1/notes', '#/study/pentest/d5/5.1/terms', '#/study/pentest/d5/5.1/assignment', '#/study/pentest/d5/capstone', '#/practice', '#/flash', '#/search', '#/mock', '#/readiness', '#/settings']) {
+      await go(h);
+      check(q('#app h1') && q('#app').innerText.length > 40, 'page renders: ' + h);
+    }
+    check(!/Coming soon/.test((await go('#/study/pentest'), q('#app').textContent)), 'PenTest+ shows all five domains as built');
+
+    /* 2. D5 is selectable in practice, and in the mock-exam question pool */
+    await go('#/practice'); setSel(q('[data-chg=psExam]'), 'pentest'); await sleep(40);
+    check(qa('[data-chg=psDom] option').some((o) => o.value === 'd5'), 'practice offers PenTest+ Domain 5');
+    setSel(q('[data-chg=psDom]'), 'd5'); await sleep(40);
+    check(/\d+ questions in this selection/.test(q('#app').textContent) && !/\b0 questions in this selection/.test(q('#app').textContent), 'Domain 5 has questions to practice');
+
+    /* 3. full run-through for each question type */
+    const a = await runPractice('pentest', 'd1', '1.2'); check(a.order >= 1, 'an ordering question was answered');
+    const b = await runPractice('pentest', 'd3', '3.2'); check(b.order >= 1 && b.exhibit >= 1, 'ordering and exhibit questions were answered');
+    const c = await runPractice('pentest', 'd3', '3.3'); check(c.sort >= 1, 'a category-sorting question was answered');
+    const d = await runPractice('secplus', 'd2', '2.4'); check(d.exhibit >= 1, 'a Security+ exhibit question was answered');
+    const e = await runPractice('securityx', 'd2', '2.6'); check(e.sort >= 1, 'a SecurityX sorting question was answered');
+    await runPractice('pentest', 'd5', '5.3');
+    await runPractice('cysa', 'd1', '1.2');
+
+    /* 4. progress is saved: localStorage, IndexedDB mirror, and restored after local data is lost */
+    const ls = store(); const n1 = Object.keys(ls.answers || {}).length;
+    check(n1 > 20, 'answers saved to browser storage (' + n1 + ')');
+    await sleep(1400);  /* the app saves a second copy about 0.9 seconds after the last change */
+    const snap = await idbState();
+    check(snap && Object.keys(snap.answers).length === n1, 'IndexedDB mirror holds the same progress');
+    W.localStorage.removeItem('secprep.v1'); await load('../index.html?nopersist=1');
+    await settle(() => Object.keys(store().answers || {}).length === n1);
+    check(Object.keys(store().answers || {}).length === n1, 'progress restored from the device copy after browser storage was cleared');
+
+    /* 5. renamed question ids carry progress over */
+    await idbClear(); W.localStorage.setItem('secprep.v1', JSON.stringify({ answers: { 'pt-1.4-03': { n: 2, c: 2, h: [1, 1], ts: 1 } }, days: { '2020-01-01': 1 } }));
+    await load('../index.html?nopersist=1'); await sleep(300); await go('#/study/pentest/d1/1.5/quiz');
+    const stats = qa('.stat b').map((x) => x.textContent);
+    check(stats[1] === '1', 'old question id pt-1.4-03 migrated to pt-1.5-01 (seen = ' + stats[1] + ')');
+    await idbClear(); W.localStorage.clear(); await load('../index.html?nopersist=1'); await sleep(200);
+
+    /* 6. search */
+    await go('#/search'); typeIn(q('#sbox'), 'tailgating'); await sleep(60);
+    check(qa('#sres .item').length > 0 && !!q('#sres mark'), 'search finds "tailgating" with highlighting (' + qa('#sres .item').length + ' results)');
+    typeIn(q('#sbox'), 'zzzzqqxx'); await sleep(60);
+    check(/No matches/.test(q('#sres').textContent), 'search reports no matches for nonsense');
+
+    /* 7. saved items and notes */
+    await go('#/study/pentest/d1/1.1/notes'); q('[data-act=bmObj]').click(); await sleep(60);
+    check(/Saved/.test(q('[data-act=bmObj]').textContent), 'objective can be saved');
+    typeIn(q('[data-inp=myNote]'), 'my test note about scope'); await sleep(40);
+    await go('#/search'); typeIn(q('#sbox'), ''); await sleep(60);
+    check(/Saved objectives/.test(q('#sres').textContent) && /my test note about scope/.test(q('#sres').textContent), 'saved objective and personal note listed on the search page');
+
+    /* 8. theme */
+    await go('#/settings'); setSel(q('[data-chg=theme]'), 'light'); await sleep(40);
+    check(D.documentElement.getAttribute('data-theme') === 'light', 'light theme applied');
+    setSel(q('[data-chg=theme]'), 'dark'); await sleep(40);
+    check(D.documentElement.getAttribute('data-theme') === 'dark', 'dark theme applied');
+    setSel(q('[data-chg=theme]'), 'auto');
+
+    /* 9. exam date and study plan */
+    await go('#/'); const dt = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+    setSel(q('[data-chg=setDate]'), dt); await sleep(60);
+    check(/30 days to go/.test(q('#app').textContent) || /29 days to go/.test(q('#app').textContent) || /31 days to go/.test(q('#app').textContent), 'study plan shows days to go');
+
+    /* 10. flashcards with scheduling */
+    await go('#/flash'); q('[data-act=fpStart]').click(); await sleep(100);
+    check(W.location.hash === '#/flash/run', 'flashcard session started');
+    q('[data-act=flip]').click(); await sleep(20); q('[data-act=got]').click(); await sleep(20);
+    check(Object.keys(store().fdue || {}).length >= 1, 'flashcard review scheduled a next due date');
+    W.location.hash = '#/flash'; await sleep(80);
+
+    /* 11. keyboard shortcuts in a quiz */
+    await go('#/practice'); setSel(q('[data-chg=psExam]'), 'secplus'); await sleep(30); setSel(q('[data-chg=psDom]'), 'd1'); await sleep(30); q('[data-act=psStart]').click(); await sleep(100);
+    D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'a', bubbles: true })); await sleep(30);
+    check(!!q('.opt.sel'), 'pressing A selects the first answer');
+    D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(30);
+    check(!!q('.explain'), 'pressing Enter checks the answer');
+    q('[data-act=end]').click(); await sleep(100);
+
+    /* 12. mock exam, results breakdown */
+    await go('#/mock'); qa('[data-act=setExam]').find((x) => /PenTest/.test(x.textContent)).click(); await sleep(60);
+    q('[data-act=mockStart]').click(); await sleep(150);
+    check(W.location.hash === '#/quiz' && !!q('#timer'), 'mock exam started with a timer');
+    q('.opt') && q('.opt').click(); await sleep(20);
+    q('[data-act=end]').click(); await sleep(150);
+    check(W.location.hash === '#/results' && /By domain and pace/.test(q('#app').textContent), 'mock results include a per-domain and pace breakdown');
+
+    /* 13. labs: list, every engine played through the real UI, progress saved */
+    await go('#/labs');
+    check(qa('a.lab-card').length === W.CT.labs.list.length && W.CT.labs.list.length >= 19, 'labs page lists every lab (' + qa('a.lab-card').length + ')');
+    const doneCount = () => qa('#labTasks .task-item.done').length;
+    const totalTasks = () => qa('#labTasks .task-item').length;
+    const openLab = async (id) => { await go('#/labs/' + id); for (let i = 0; i < 40 && !q('#labTasks .task-item'); i++) await sleep(50); await sleep(100); };
+    const answer = async (tid, val) => { const f = q('form[data-task="' + tid + '"]'); if (!f) return false; f.querySelector('input[type=text]').value = val; f.dispatchEvent(new W.Event('submit', { bubbles: true, cancelable: true })); await sleep(120); return true; };
+    const choose = async (tid, text) => { const c = q('.choice[data-task="' + tid + '"]'); if (!c) return false; const lab = qa('.choice[data-task="' + tid + '"] label.rad').find((l) => l.textContent.indexOf(text) >= 0); lab.querySelector('input').checked = true; c.querySelector('[data-choice]').click(); await sleep(80); return true; };
+    const term = async (cmd) => { const i = q('.term-in'); i.value = cmd; i.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await sleep(120); };
+    const allDone = () => doneCount() === totalTasks() && totalTasks() > 0;
+
+    /* shell lab: wrong answer rejected, right answer accepted, state tasks auto-complete */
+    await openLab('permissions-audit');
+    check(doneCount() === 0, 'a fresh lab starts with no completed tasks');
+    await term('ls -l /srv/app'); check(/config\.php/.test(q('.term-out').textContent) && /rw-rw-rw-/.test(q('.term-out').textContent), 'terminal runs ls -l and shows modes');
+    await answer('t1', '99'); check(!q('.task-item.done') && /Not quite/.test(q('#labTasks').textContent), 'a wrong answer is rejected with feedback');
+    await term('find /srv -type f -perm -002 | wc -l'); await answer('t1', '3'); check(doneCount() === 1, 'the correct answer completes the task');
+    for (const c of ['chmod 640 /srv/app/config.php', 'chmod 600 /srv/app/.env', 'chmod 600 /home/analyst/.ssh/id_rsa', 'chmod u-s /usr/local/bin/backup', 'chmod 750 /srv/app/uploads']) await term(c);
+    await choose('t7', '640'); check(allDone(), 'permissions lab: all tasks complete after fixing the files (' + doneCount() + '/' + totalTasks() + ')');
+    check(/Lab complete/.test(q('#labDone').textContent), 'completion card with debrief is shown');
+    check(store().labs && store().labs['permissions-audit'] && store().labs['permissions-audit'].completed > 0, 'lab completion is saved to progress');
+
+    /* shell lab with a pipeline and history */
+    await openLab('auth-log-bruteforce');
+    await term("grep 'Failed password' /var/log/auth.log | awk '{print $(NF-3)}' | sort | uniq -c | sort -nr | head -3");
+    check(/203\.0\.113\.77/.test(q('.term-out').textContent), 'a grep | awk | sort | uniq pipeline works in the terminal');
+    await answer('t1', '203.0.113.77'); check(doneCount() >= 1, 'brute-force lab: top IP answer accepted');
+    const inp = q('.term-in'); inp.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })); check(/grep/.test(inp.value), 'arrow-up recalls the previous command');
+    await term('echo hi > x'); check(/redirection is disabled/.test(q('.term-out').textContent), 'redirection is refused safely');
+
+    /* firewall lab: build the rule set through the editor */
+    await openLab('fw-publish-web');
+    check(qa('.fw-table tbody tr').length === 11 && qa('.fw-table tr.bad').length > 0, 'firewall tests render, some failing at the start');
+    qa('[data-fw=del]').forEach((b) => b.click()); await sleep(30); qa('[data-fw=del]').forEach((b) => b.click()); await sleep(30);
+    const rules = [['allow', 'tcp', 'any', '10.0.5.10', '443'], ['allow', 'tcp', 'any', '10.0.5.10', '80'], ['allow', 'tcp', '10.0.9.4', '10.0.5.10', '22'], ['allow', 'tcp', '10.0.5.10', '10.0.6.20', '3306'], ['allow', 'tcp', '10.0.1.0/24', 'any', '443'], ['allow', 'udp', '10.0.1.0/24', '10.0.0.53', '53']];
+    for (let i = 0; i < rules.length; i++) q('[data-fw=add]').click();
+    for (let i = 0; i < rules.length; i++) {
+      let row = q('.fw-row[data-i="' + i + '"]'); const pr = row.querySelector('select[data-f=proto]'); pr.value = rules[i][1]; pr.dispatchEvent(new W.Event('change', { bubbles: true }));
+      row = q('.fw-row[data-i="' + i + '"]');
+      ['src', 'dst', 'port'].forEach((f, k) => { const el = row.querySelector('[data-f=' + f + ']'); el.value = rules[i][2 + k]; el.dispatchEvent(new W.Event('input', { bubbles: true })); });
+    }
+    await sleep(100);
+    check(qa('.fw-table tr.bad').length === 0, 'firewall: all traffic tests pass with a correct rule set');
+    await choose('t6', 'first matching rule'); check(allDone(), 'firewall lab complete (' + doneCount() + '/' + totalTasks() + ')');
+    const badBefore = qa('.fw-table tr.bad').length; q('[data-fw=reset]').click(); await sleep(50);
+    check(qa('.fw-table tr.bad').length > badBefore, 'resetting the rules restores the flawed starting set');
+
+    /* config editor */
+    await openLab('harden-sshd');
+    const ta = q('textarea.cfg-edit'); check(qa('.cfg-checks li.bad').length >= 8, 'config lab starts with most checks failing');
+    ta.value = 'Port 22\nLoginGraceTime 30\nPermitRootLogin no\nPasswordAuthentication no\nPermitEmptyPasswords no\nPubkeyAuthentication yes\nMaxAuthTries 3\nX11Forwarding no\nClientAliveInterval 300\nClientAliveCountMax 2\nAllowGroups sshusers\nUsePAM yes\n';
+    ta.dispatchEvent(new W.Event('input', { bubbles: true })); await sleep(400);
+    check(qa('.cfg-checks li.bad').length === 0 && doneCount() === 4, 'config lab: hardening the file turns every check green and completes the state tasks');
+
+    /* packet analysis */
+    await openLab('pcap-scan-cleartext');
+    check(/packets match/.test(q('#pcount').textContent) && qa('#prows tr').length > 50, 'packet table renders');
+    const pf = q('#pf'); pf.value = 'tcp.flags.syn==1 and tcp.flags.ack==0 and ip.src==203.0.113.50'; pf.dispatchEvent(new W.Event('input', { bubbles: true })); await sleep(60);
+    check(/^60 of /.test(q('#pcount').textContent), 'filter finds the 60 scan packets (' + q('#pcount').textContent + ')');
+    pf.value = 'tcp.flags.syn=='; pf.dispatchEvent(new W.Event('input', { bubbles: true })); await sleep(40);
+    check(pf.classList.contains('bad'), 'an invalid filter is flagged');
+    pf.value = 'ftp'; pf.dispatchEvent(new W.Event('input', { bubbles: true })); await sleep(40); q('#prows tr').click(); await sleep(40);
+    check(/Packet \d+/.test(q('#pdetail').textContent), 'clicking a packet shows its details');
+    await answer('t1', '203.0.113.50'); await answer('t2', '60'); await answer('t3', '80, 22, 25'); await answer('t4', 'ftpadmin');
+    const b64 = q('#b64in'); b64.value = btoa('admin:Summer2024!'); b64.dispatchEvent(new W.Event('input', { bubbles: true })); check(/admin:Summer2024!/.test(q('#b64out').textContent), 'Base64 decoder works');
+    await answer('t5', 'admin'); await choose('t6', 'SFTP'); check(allDone(), 'packet lab complete (' + doneCount() + '/' + totalTasks() + ')');
+
+    /* crypto */
+    await openLab('crypto-hash-integrity');
+    const hin = q('#hin'); hin.value = 'SecurityPrep'; hin.dispatchEvent(new W.Event('input', { bubbles: true })); await sleep(150);
+    const expect1 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('SecurityPrep')))).map((x) => x.toString(16).padStart(2, '0')).join('');
+    check(q('#hout').textContent === expect1, 'the hash tool computes a correct SHA-256');
+    for (const b of qa('[data-int]')) { b.click(); await sleep(120); }
+    check(qa('.badc').length === 1 && qa('.okc').length === 2, 'integrity checker finds exactly one tampered file');
+    await answer('t1', expect1.slice(0, 8)); check(doneCount() >= 1, 'crypto answer computed from the real hash is accepted');
+
+    /* email analysis */
+    await openLab('phish-analysis');
+    const mail = await W.CT.labs.byId['phish-analysis'].data();
+    mail.indicators.filter((i) => i.bad).forEach((i) => q('[data-flag="' + i.id + '"]').click());
+    const ev = q('#ev'); ev.value = 'phish'; ev.dispatchEvent(new W.Event('change', { bubbles: true })); const ea = q('#ea'); ea.value = 'report'; ea.dispatchEvent(new W.Event('change', { bubbles: true }));
+    q('#echeck').click(); await sleep(100);
+    check(allDone(), 'phishing lab complete (' + doneCount() + '/' + totalTasks() + ')');
+    q('[data-showlink]') && q('[data-showlink]').click(); await sleep(40); check(/m1crosoft-secure/.test(q('.realhref') ? q('.realhref').textContent : ''), 'the real link target can be revealed');
+
+    /* decisions */
+    await openLab('triage-vulns');
+    const tri = await W.CT.labs.byId['triage-vulns'].data();
+    tri.items.slice(0, 7).forEach((it) => { const s = q('select[data-id="' + it.id + '"]'); s.value = it.correct; s.dispatchEvent(new W.Event('change', { bubbles: true })); });
+    q('#ccheck').click(); await sleep(60);
+    check(qa('table.cls tr.bad').length === 1, 'an unanswered row is marked wrong');
+    tri.items.forEach((it) => { const s = q('select[data-id="' + it.id + '"]'); s.value = it.correct; s.dispatchEvent(new W.Event('change', { bubbles: true })); });
+    q('#ccheck').click(); await sleep(80);
+    await choose('t3', 'Exposure'); check(allDone(), 'triage lab complete (' + doneCount() + '/' + totalTasks() + ')');
+
+    /* progress wiring: dashboard count, related labs, search, persistence */
+    await go('#/'); check(qa('.stat').some((s) => /labs completed/.test(s.textContent) && /^[4-9]/.test(s.textContent.trim())), 'dashboard shows labs completed');
+    await go('#/study/secplus/d4/4.9/notes'); check(/Practice this in a lab/.test(q('#app').textContent), 'objective pages link to related labs');
+    await go('#/search'); typeIn(q('#sbox'), 'firewall'); await sleep(60); check(qa('#sres .item').some((i) => /Lab/.test(i.textContent)), 'search finds labs');
+    const savedLabs = Object.keys(store().labs || {}).filter((k) => store().labs[k].completed);
+    check(savedLabs.length >= 5, 'completed labs are stored in progress (' + savedLabs.length + ')');
+    await load('../index.html?nopersist=1'); await go('#/labs'); await sleep(100);
+    check(qa('a.lab-card .pill.ok').length >= 5, 'completed labs still show as done after a reload');
+
+    /* 14. readiness and backup export */
+    await go('#/readiness'); check(/By domain/.test(q('#app').textContent) && qa('.notes table tr').length >= 6, 'readiness lists every PenTest+ domain');
+    check(errors.length === 0, 'no script errors (' + errors.join(' | ') + ')');
+  } catch (err) {
+    log(false, 'test run aborted: ' + (err && err.stack || err));
+  }
+  document.body.setAttribute('data-finished', 'yes');
+})();
+</script></body></html>
